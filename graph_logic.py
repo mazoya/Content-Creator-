@@ -1,3 +1,4 @@
+
 """
 LangGraph pipeline that fans out one topic into several pieces of content
 in parallel (blog post, X/Twitter thread, LinkedIn post, SEO meta tags),
@@ -27,13 +28,15 @@ class ContentState(TypedDict, total=False):
 
 
 # ---------------------------------------------------------------------------
-# LLM factory (created lazily so the API key can come from the UI at runtime)
+# LLM factory — reads the API key from an environment variable set by
+# run_pipeline() right before the graph runs. This avoids relying on
+# LangGraph's config-passing behavior, which changed between versions.
 # ---------------------------------------------------------------------------
-def get_llm(api_key: str | None = None, model: str = "gemini-2.0-flash") -> ChatGoogleGenerativeAI:
-    key = api_key or os.environ.get("GOOGLE_API_KEY")
+def get_llm(model: str = "gemini-2.0-flash") -> ChatGoogleGenerativeAI:
+    key = os.environ.get("GOOGLE_API_KEY")
     if not key:
         raise ValueError(
-            "No Google API key found. Set GOOGLE_API_KEY or pass one in from the UI."
+            "No Google API key found. Set GOOGLE_API_KEY before running the pipeline."
         )
     return ChatGoogleGenerativeAI(model=model, google_api_key=key, temperature=0.8)
 
@@ -47,8 +50,8 @@ def _context(state: ContentState) -> str:
 # ---------------------------------------------------------------------------
 # Parallel nodes — each one is independent, so LangGraph runs them concurrently
 # ---------------------------------------------------------------------------
-def generate_blog(state: ContentState, config: dict) -> dict:
-    llm = get_llm(config["configurable"].get("api_key"))
+def generate_blog(state: ContentState) -> dict:
+    llm = get_llm()
     prompt = (
         f"{_context(state)}\n\n"
         "Write a well-structured blog post (400-600 words) with a headline, "
@@ -58,8 +61,8 @@ def generate_blog(state: ContentState, config: dict) -> dict:
     return {"blog_post": resp.content}
 
 
-def generate_twitter(state: ContentState, config: dict) -> dict:
-    llm = get_llm(config["configurable"].get("api_key"))
+def generate_twitter(state: ContentState) -> dict:
+    llm = get_llm()
     prompt = (
         f"{_context(state)}\n\n"
         "Write a 5-tweet thread (X/Twitter). Number each tweet (1/5 ... 5/5), "
@@ -69,8 +72,8 @@ def generate_twitter(state: ContentState, config: dict) -> dict:
     return {"twitter_thread": resp.content}
 
 
-def generate_linkedin(state: ContentState, config: dict) -> dict:
-    llm = get_llm(config["configurable"].get("api_key"))
+def generate_linkedin(state: ContentState) -> dict:
+    llm = get_llm()
     prompt = (
         f"{_context(state)}\n\n"
         "Write a LinkedIn post (150-250 words). Strong first line (it's what shows "
@@ -80,8 +83,8 @@ def generate_linkedin(state: ContentState, config: dict) -> dict:
     return {"linkedin_post": resp.content}
 
 
-def generate_seo(state: ContentState, config: dict) -> dict:
-    llm = get_llm(config["configurable"].get("api_key"))
+def generate_seo(state: ContentState) -> dict:
+    llm = get_llm()
     prompt = (
         f"{_context(state)}\n\n"
         "Produce SEO metadata as plain text with these labeled lines:\n"
@@ -113,9 +116,7 @@ def build_graph():
 
 
 def run_pipeline(topic: str, tone: str, audience: str, api_key: str) -> ContentState:
+    os.environ["GOOGLE_API_KEY"] = api_key
     app = build_graph()
-    result = app.invoke(
-        {"topic": topic, "tone": tone, "audience": audience},
-        config={"configurable": {"api_key": api_key}},
-    )
+    result = app.invoke({"topic": topic, "tone": tone, "audience": audience})
     return result
