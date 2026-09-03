@@ -1,3 +1,4 @@
-streamlit==1.38.0
-langgraph==0.2.34
-langchain-google-genai==2.0.4
+
+streamlit>=1.38.0
+langgraph>=0.2.34
+langchain-google-genai>=2.0.4
