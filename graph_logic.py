@@ -32,7 +32,7 @@ class ContentState(TypedDict, total=False):
 # run_pipeline() right before the graph runs. This avoids relying on
 # LangGraph's config-passing behavior, which changed between versions.
 # ---------------------------------------------------------------------------
-def get_llm(model: str = "gemini-2.0-flash") -> ChatGoogleGenerativeAI:
+def get_llm(model: str = "gemini-3.6-flash") -> ChatGoogleGenerativeAI:
     key = os.environ.get("GOOGLE_API_KEY")
     if not key:
         raise ValueError(
