@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 
-from content_graph import run_pipeline
+from graph_logic import run_pipeline
 
 st.set_page_config(page_title="Parallel Content Agent", page_icon="⚡", layout="wide")
 
