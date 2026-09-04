@@ -1,6 +1,6 @@
 """
 LangGraph pipeline that fans out one topic into several pieces of content
-in parallel (blog post, X/Twitter thread, LinkedIn post, SEO meta tags),
+in parallel (Facebook post, X/Twitter thread, LinkedIn post, SEO meta tags),
 then fans back in to a single result.
 
 Resilience: each node tries a list of LLM providers in priority order.
@@ -52,6 +52,12 @@ def _build_provider_chain():
 
             llm = ChatAnthropic(model="claude-sonnet-5", anthropic_api_key=key, temperature=0.8)
             chain.append(("Anthropic Claude", llm))
+
+        elif provider == "openai" and key:
+            from langchain_openai import ChatOpenAI
+
+            llm = ChatOpenAI(model="gpt-4o-mini", api_key=key, temperature=0.8)
+            chain.append(("OpenAI ChatGPT", llm))
 
     if not chain:
         raise ValueError("No LLM provider configured. Provide at least one API key.")
