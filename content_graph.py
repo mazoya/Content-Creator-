@@ -12,36 +12,59 @@ st.caption(
     "overloaded or down, it automatically falls back to the next one."
 )
 
+
+def mask_preview(key: str) -> str:
+    """Shows length + first/last few characters so copy-paste issues (stray
+    spaces, truncation) are visible without exposing the full key."""
+    if not key:
+        return "(vide)"
+    stripped = key.strip()
+    had_whitespace = stripped != key
+    preview = f"{stripped[:6]}...{stripped[-4:]} · {len(stripped)} caractères"
+    if had_whitespace:
+        preview += "  ⚠️ espace détecté et retiré automatiquement"
+    return preview
+
+
 with st.sidebar:
     st.header("Providers (fallback order)")
     st.caption("Fill in at least one. If the first one fails, the app tries the next automatically.")
 
     st.subheader("1️⃣ Google Gemini")
-    google_key = st.text_input(
+    google_key_raw = st.text_input(
         "Google API key",
         value=os.environ.get("GOOGLE_API_KEY", ""),
         type="password",
         help="Get one free at https://aistudio.google.com/apikey",
         key="google_key",
     )
+    google_key = google_key_raw.strip()
+    if google_key_raw:
+        st.caption(f"🔎 {mask_preview(google_key_raw)}")
 
     st.subheader("2️⃣ Anthropic Claude")
-    anthropic_key = st.text_input(
+    anthropic_key_raw = st.text_input(
         "Anthropic API key",
         value=os.environ.get("ANTHROPIC_API_KEY", ""),
         type="password",
         help="Get one at https://console.anthropic.com/settings/keys",
         key="anthropic_key",
     )
+    anthropic_key = anthropic_key_raw.strip()
+    if anthropic_key_raw:
+        st.caption(f"🔎 {mask_preview(anthropic_key_raw)}")
 
     st.subheader("3️⃣ OpenAI ChatGPT")
-    openai_key = st.text_input(
+    openai_key_raw = st.text_input(
         "OpenAI API key",
         value=os.environ.get("OPENAI_API_KEY", ""),
         type="password",
         help="Get one at https://platform.openai.com/api-keys",
         key="openai_key",
     )
+    openai_key = openai_key_raw.strip()
+    if openai_key_raw:
+        st.caption(f"🔎 {mask_preview(openai_key_raw)}")
 
     st.divider()
     tone = st.selectbox(
