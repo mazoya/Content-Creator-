@@ -1,11 +1,16 @@
 """
-LangGraph pipeline that fans out one topic into several pieces of content
-in parallel (Facebook post, X/Twitter thread, LinkedIn post, SEO meta tags),
-then fans back in to a single result.
+LangGraph pipeline that turns one topic into four pieces of content:
+Facebook post, X/Twitter thread, LinkedIn post, SEO meta tags.
 
-Resilience: each node tries a list of LLM providers in priority order.
-If the first provider fails (rate limit, 503, outage, etc.), it automatically
-falls back to the next one instead of failing the whole generation.
+Resilience: tries a list of LLM providers in priority order. If the first
+provider fails (rate limit, 503, outage, etc.), it automatically falls back
+to the next one instead of failing the whole generation.
+
+Efficiency: all four pieces of content are produced in a SINGLE model call
+(the model returns structured JSON), not four separate calls. This matters
+a lot on free-tier quotas — e.g. Gemini's free tier caps requests PER DAY,
+not per minute, so four parallel calls burn four times the daily quota for
+one generation. One call keeps the same output while using 1/4 of the quota.
 """
 
 import os
@@ -30,7 +35,7 @@ class ContentState(TypedDict, total=False):
 
 # ---------------------------------------------------------------------------
 # Provider chain — built once from env vars set by run_pipeline(), then
-# reused by every node. Order = fallback priority.
+# reused by the node. Order = fallback priority.
 # ---------------------------------------------------------------------------
 def _build_provider_chain():
     """Returns a list of (label, invoke_fn) tuples, in priority order."""
@@ -91,63 +96,62 @@ def _context(state: ContentState) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Parallel nodes — each one is independent, so LangGraph runs them concurrently
+# Single combined node — one API call produces all four pieces of content.
 # ---------------------------------------------------------------------------
-def generate_facebook(state: ContentState) -> dict:
+def generate_all_content(state: ContentState) -> dict:
     prompt = (
         f"{_context(state)}\n\n"
-        "Write a Facebook post (100-200 words). Conversational and warm tone, "
-        "short paragraphs, use 1-2 relevant emojis naturally, end with a question "
-        "or call-to-action that invites comments or shares."
+        "Produce four pieces of content for this topic. Return ONLY a valid JSON "
+        "object with exactly these four keys and nothing else (no markdown fences, "
+        "no commentary):\n\n"
+        '{\n'
+        '  "facebook_post": "Facebook post, 100-200 words, conversational and warm, '
+        'short paragraphs, 1-2 relevant emojis, ends with a question or call-to-action",\n'
+        '  "twitter_thread": "A 5-tweet thread, numbered 1/5 to 5/5, each tweet under '
+        '280 characters, hook hard on tweet 1",\n'
+        '  "linkedin_post": "LinkedIn post, 150-250 words, strong first line, short '
+        'paragraphs, ends with a question to invite comments",\n'
+        '  "seo_meta": "Plain text with labeled lines: Title Tag (max 60 chars), '
+        'Meta Description (max 155 chars), Slug (url-friendly), Keywords (8-10 comma-separated)"\n'
+        '}'
     )
-    return {"facebook_post": invoke_with_fallback(prompt)}
+    raw = invoke_with_fallback(prompt)
 
+    # Models sometimes wrap JSON in ```json fences despite instructions — strip those.
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.split("```")[1]
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:]
+        cleaned = cleaned.strip()
 
-def generate_twitter(state: ContentState) -> dict:
-    prompt = (
-        f"{_context(state)}\n\n"
-        "Write a 5-tweet thread (X/Twitter). Number each tweet (1/5 ... 5/5), "
-        "keep each under 280 characters, hook hard on tweet 1."
-    )
-    return {"twitter_thread": invoke_with_fallback(prompt)}
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Fall back to showing the raw response somewhere visible rather than crashing.
+        return {
+            "facebook_post": raw,
+            "twitter_thread": "(voir l'onglet Facebook — le modèle n'a pas renvoyé un JSON structuré)",
+            "linkedin_post": "",
+            "seo_meta": "",
+        }
 
-
-def generate_linkedin(state: ContentState) -> dict:
-    prompt = (
-        f"{_context(state)}\n\n"
-        "Write a LinkedIn post (150-250 words). Strong first line (it's what shows "
-        "before 'see more'), short paragraphs, end with a question to invite comments."
-    )
-    return {"linkedin_post": invoke_with_fallback(prompt)}
-
-
-def generate_seo(state: ContentState) -> dict:
-    prompt = (
-        f"{_context(state)}\n\n"
-        "Produce SEO metadata as plain text with these labeled lines:\n"
-        "Title Tag: (max 60 chars)\n"
-        "Meta Description: (max 155 chars)\n"
-        "Slug: (url-friendly)\n"
-        "Keywords: (comma-separated, 8-10 keywords)"
-    )
-    return {"seo_meta": invoke_with_fallback(prompt)}
+    return {
+        "facebook_post": data.get("facebook_post", ""),
+        "twitter_thread": data.get("twitter_thread", ""),
+        "linkedin_post": data.get("linkedin_post", ""),
+        "seo_meta": data.get("seo_meta", ""),
+    }
 
 
 # ---------------------------------------------------------------------------
-# Build the graph: START fans out to all four nodes, all four fan back into END
+# Build the graph: a single node, START -> generate_all -> END
 # ---------------------------------------------------------------------------
 def build_graph():
     graph = StateGraph(ContentState)
-
-    graph.add_node("facebook", generate_facebook)
-    graph.add_node("twitter", generate_twitter)
-    graph.add_node("linkedin", generate_linkedin)
-    graph.add_node("seo", generate_seo)
-
-    for node in ("facebook", "twitter", "linkedin", "seo"):
-        graph.add_edge(START, node)
-        graph.add_edge(node, END)
-
+    graph.add_node("generate_all", generate_all_content)
+    graph.add_edge(START, "generate_all")
+    graph.add_edge("generate_all", END)
     return graph.compile()
 
 
