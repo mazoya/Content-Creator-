@@ -44,7 +44,7 @@ def _build_provider_chain():
 
     for cfg in configs:
         provider = cfg["provider"]
-        key = cfg["api_key"]
+        key = cfg["api_key"].strip() if cfg.get("api_key") else cfg["api_key"]
 
         if provider == "google" and key:
             from langchain_google_genai import ChatGoogleGenerativeAI
