@@ -44,12 +44,35 @@ def _build_provider_chain():
 
     for cfg in configs:
         provider = cfg["provider"]
-        key = cfg["api_key"].strip() if cfg.get("api_key") else cfg["api_key"]
+        key = cfg.get("api_key")
+        if isinstance(key, list):  # defensive: handle unexpected shapes gracefully
+            key = key[0] if key else ""
+        if isinstance(key, str):
+            key = key.strip()
 
         if provider == "google" and key:
-            from langchain_google_genai import ChatGoogleGenerativeAI
+            # Google's newer "AQ."-prefixed API keys need the current
+            # google-genai SDK; the older langchain-google-genai integration
+            # is built for the legacy "AIzaSy"-prefixed key format and
+            # rejects the new one with an auth error.
+            from google import genai as google_genai
 
-            llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=key, temperature=0.8)
+            class _GeminiWrapper:
+                def __init__(self, model, api_key):
+                    self._client = google_genai.Client(api_key=api_key)
+                    self._model = model
+
+                def invoke(self, prompt):
+                    resp = self._client.models.generate_content(model=self._model, contents=prompt)
+
+                    class _Result:
+                        pass
+
+                    r = _Result()
+                    r.content = resp.text
+                    return r
+
+            llm = _GeminiWrapper(model="gemini-3.6-flash", api_key=key)
             chain.append(("Google Gemini", llm))
 
         elif provider == "anthropic" and key:
